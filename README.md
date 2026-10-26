@@ -2,7 +2,7 @@
 
 A 3D globe of tech conferences, summits and expos for the whole technology community, not just developers. See where events are and when they happen, then narrow them to what matters to you.
 
-**Status:** working front-end prototype with 27 hand-compiled seed events. Backend (Supabase) is next.
+**Status:** working front-end prototype. It shows 27 hand-compiled sample events, or live events from a Supabase database once `config.js` is filled in.
 
 ## Features
 
@@ -41,9 +41,21 @@ The page loads globe.gl and fonts from CDNs, so it needs a network connection.
 
 Import the repo in Vercel. Framework preset: **Other**. No build command and no output directory needed.
 
+## Backend (Supabase)
+
+The page runs without a backend. To use a database:
+
+1. Create a Supabase project (dedicated to this app).
+2. Apply `supabase/migrations/20261026120000_create_events.sql` (SQL editor, or `supabase db push` with the CLI). It creates `events` and `event_deadlines` with PostGIS, row-level security, and an `events_near(lat, lng, miles)` function.
+3. Run `supabase/seed.sql` to load the 27 sample events as approved.
+4. Put the project URL and the **publishable (anon) key** in `config.js`. Never put a service-role key there.
+5. Reload. If the table is empty or the request fails, the page falls back to the built-in sample.
+
+Access rules: anyone can read events with `status = 'approved'`. Signed-in users can insert events as `pending`. Approving or rejecting is done with the service role (dashboard or the future ingestion job).
+
 ## Data
 
-Events live in the `RAW` array inside `index.html`:
+The built-in sample lives in the `RAW` array inside `index.html`:
 
 `[id, name, start, end, city, country, lat, lng, metro, categories, url, kind, source, venue, note]`
 
@@ -51,13 +63,15 @@ Events live in the `RAW` array inside `index.html`:
 - `metro` groups events for clustering, so use the same string for the same city area
 - Deadlines are in the `DEADLINES` object, keyed by event id
 
+The database uses the same fields (`categories` is `text[]`, `source` replaces the sample's source column). See the migration for the exact columns and checks.
+
 Dates move. Confirm with the organizer before you book.
 
 ## Roadmap
 
-1. Port to Next.js (App Router) with a server-rendered page per event
-2. Supabase with PostGIS: `events` table with status (`pending`, `approved`, `rejected`), row-level security (public read of approved events)
-3. Submit-an-event form and an approval queue
+1. ~~Supabase with PostGIS and row-level security~~ (schema and loader are in; project setup is a manual step above)
+2. Submit-an-event form and an approval queue
+3. Port to Next.js (App Router) with a server-rendered page per event
 4. Ingestion job that normalizes event pages into the schema with an LLM and writes them as `pending`
 5. Quality dashboard and an MCP server for querying events
 

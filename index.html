@@ -285,7 +285,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </div>
     <div class="listwrap" id="listwrap">
       <ol class="list" id="list"></ol>
-      <p class="note">Seed data compiled Oct 20, 2026 from public listings and organizer pages. Dates move, so confirm with the organizer before you book.</p>
+      <p class="note" id="datanote">Sample data compiled Oct 20, 2026 from public listings and organizer pages. Dates move, so confirm with the organizer before you book.</p>
     </div>
   </aside>
 
@@ -305,6 +305,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </main>
 </div>
 
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/globe.gl@2.39.5/dist/globe.gl.min.js"></script>
 <script>
 (function () {
@@ -378,22 +379,29 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   };
   var COUNTRY_ALIAS = { "USA": "united states america", "UK": "united kingdom england britain" };
 
-  var EVENTS = RAW.map(function (r) {
-    var ev = { id: r[0], name: r[1], start: d(r[2]), end: d(r[3]), city: r[4], country: r[5], lat: r[6], lng: r[7], metro: r[8], cats: r[9], url: r[10], kind: r[11], src: r[12], venue: r[13], note: r[14] };
-    ev.dl = (DEADLINES[r[0]] || []).map(function (x) { return { t: x[0], date: d(x[1]), url: x[2], time: x[3] || "" }; });
+  function finish(ev) {
     ev._hay = [ev.name, ev.city, ev.country, COUNTRY_ALIAS[ev.country] || "", ev.metro, ev.venue || "",
       ev.cats.map(function (c) { return CAT[c].name; }).join(" "), ev.start.getFullYear(), ev.end.getFullYear()].join(" ").toLowerCase();
     return ev;
-  });
-  var BYID = {}; EVENTS.forEach(function (e) { BYID[e.id] = e; });
+  }
 
   // Metro centres come from every event in the metro so markers do not drift when filters change.
-  var METROS = {};
-  EVENTS.forEach(function (e) {
-    var m = METROS[e.metro] || (METROS[e.metro] = { key: e.metro, lat: 0, lng: 0, n: 0 });
-    m.lat += e.lat; m.lng += e.lng; m.n += 1;
-  });
-  Object.keys(METROS).forEach(function (k) { var m = METROS[k]; m.lat /= m.n; m.lng /= m.n; });
+  var EVENTS = [], BYID = {}, METROS = {};
+  function setEvents(list) {
+    EVENTS = list; BYID = {}; METROS = {};
+    EVENTS.forEach(function (e) {
+      BYID[e.id] = e;
+      var m = METROS[e.metro] || (METROS[e.metro] = { key: e.metro, lat: 0, lng: 0, n: 0 });
+      m.lat += e.lat; m.lng += e.lng; m.n += 1;
+    });
+    Object.keys(METROS).forEach(function (k) { var m = METROS[k]; m.lat /= m.n; m.lng /= m.n; });
+  }
+  // The built-in sample shows instantly. Live data replaces it when a backend is configured and reachable.
+  setEvents(RAW.map(function (r) {
+    var ev = { id: r[0], name: r[1], start: d(r[2]), end: d(r[3]), city: r[4], country: r[5], lat: r[6], lng: r[7], metro: r[8], cats: r[9], url: r[10], kind: r[11], src: r[12], venue: r[13], note: r[14] };
+    ev.dl = (DEADLINES[r[0]] || []).map(function (x) { return { t: x[0], date: d(x[1]), url: x[2], time: x[3] || "" }; });
+    return finish(ev);
+  }));
 
   var WINDOWS = [
     { v: 30, t: "30d", label: "Next 30 days", sum: "next 30 days" },
@@ -845,10 +853,50 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       state.mi = MILES.indexOf(+P.mi) >= 0 ? +P.mi : 250;
     }
     if (P.v === "flat") state.flat = true;
-    if (P.e && BYID[P.e]) {
-      state.selected = P.e; compute();
-      if (state.selected !== P.e) { state.win = Infinity; state.cats.clear(); state.near = null; state.mi = 0; state.q = ""; state.selected = P.e; compute(); }
-    }
+    if (P.e) { if (BYID[P.e]) openFromLink(P.e); else pendingSel = P.e; }
+  }
+  // A link to an event outside the current filters widens them so the event still shows.
+  var pendingSel = null;
+  function openFromLink(id) {
+    state.selected = id; compute();
+    if (state.selected !== id) { state.win = Infinity; state.cats.clear(); state.near = null; state.mi = 0; state.q = ""; state.selected = id; compute(); }
+  }
+
+  /* ---------- Live data from Supabase (REST, no client library) ---------- */
+  var CFG = window.TEG_CONFIG || {};
+  var LIVE_COLS = "id,name,start_date,end_date,city,country,lat,lng,metro,categories,url,kind,source,venue,note,event_deadlines(type,deadline_date,deadline_time,url)";
+  function safeUrl(u) { return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null; }
+  function isDay(s) { return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function fromRow(r) {
+    if (!r || !r.id || !r.name || !r.metro || !isDay(r.start_date) || !isDay(r.end_date) || typeof r.lat !== "number" || typeof r.lng !== "number") return null;
+    var cats = Array.isArray(r.categories) ? r.categories.filter(function (c) { return CAT[c]; }) : [];
+    if (!cats.length) return null;
+    var ev = { id: String(r.id), name: String(r.name), start: d(r.start_date), end: d(r.end_date), city: String(r.city || ""), country: String(r.country || ""),
+      lat: r.lat, lng: r.lng, metro: String(r.metro), cats: cats, url: safeUrl(r.url), kind: r.kind === "official" ? "official" : "listing",
+      src: String(r.source || ""), venue: r.venue ? String(r.venue) : null, note: r.note ? String(r.note) : null };
+    ev.dl = (Array.isArray(r.event_deadlines) ? r.event_deadlines : []).filter(function (x) { return x && DL_TYPES[x.type] && isDay(x.deadline_date); })
+      .map(function (x) { return { t: x.type, date: d(x.deadline_date), url: safeUrl(x.url), time: x.deadline_time ? String(x.deadline_time) : "" }; });
+    return finish(ev);
+  }
+  function loadLive() {
+    if (!CFG.supabaseUrl || !CFG.supabaseKey || !window.fetch) return;
+    var iso = today.getFullYear() + "-" + pad(today.getMonth() + 1) + "-" + pad(today.getDate());
+    var url = String(CFG.supabaseUrl).replace(/\/+$/, "") + "/rest/v1/events?select=" + encodeURIComponent(LIVE_COLS) +
+      "&status=eq.approved&end_date=gte." + iso + "&order=start_date.asc&limit=1000";
+    var headers = { apikey: CFG.supabaseKey };
+    if (/^eyJ/.test(CFG.supabaseKey)) headers.Authorization = "Bearer " + CFG.supabaseKey; // legacy JWT keys only; publishable keys go in apikey alone
+    fetch(url, { headers: headers })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (rows) {
+        var list = (Array.isArray(rows) ? rows : []).map(fromRow).filter(Boolean);
+        if (!list.length) return; // an empty or unreadable table keeps the built-in sample
+        setEvents(list);
+        $("datanote").textContent = "Events come from the community event database. Dates move, so confirm with the organizer before you book.";
+        populateOrigins();
+        if (pendingSel && BYID[pendingSel]) { var id = pendingSel; pendingSel = null; openFromLink(id); setTimeout(function () { if (state.selected === id) select(id, true); }, 300); }
+        renderAll();
+      })
+      .catch(function () { /* keep the sample data */ });
   }
 
   /* ---------- Search and distance controls ---------- */
@@ -857,6 +905,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   function fmtMi(n) { return Math.round(n).toLocaleString("en-US") + " mi"; }
   function populateOrigins() {
     var sel = $("origin");
+    while (sel.options.length > 1) sel.remove(1);
     Object.keys(METROS).sort().forEach(function (k) { var o = document.createElement("option"); o.value = k; o.textContent = k; sel.appendChild(o); });
   }
   function wireControls() {
@@ -1105,6 +1154,7 @@ select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   if (!globeOk) $("hint").textContent = "3D view is not available on this device, so this is the flat map. Drag to pan · scroll or pinch to zoom · click a cluster to open it";
   renderAll();
   if (state.selected) setTimeout(function () { if (state.selected && BYID[state.selected]) select(state.selected, true); }, 500);
+  loadLive();
 })();
 </script>
 </html>
