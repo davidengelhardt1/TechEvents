@@ -1,7 +1,6 @@
-// Public settings for the live event database. Leave both empty to use the built-in sample events.
-// The publishable (anon) key is safe in the browser because row-level security controls access.
-// Never put a service-role key here.
+// Public client settings. The publishable key is safe to ship in the browser:
+// row level security decides what visitors can read and write.
 window.TEG_CONFIG = {
-  supabaseUrl: "",
-  supabaseKey: ""
+  supabaseUrl: "https://pmpvyoevpnckwtcwdaeb.supabase.co",
+  supabaseKey: "sb_publishable_MHsDf_vdQIQm28V0M5s0eQ_wqVo2AlE"
 };
