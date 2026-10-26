@@ -2,7 +2,9 @@
 
 A 3D globe of tech conferences, summits and expos for the whole technology community, not just developers. See where events are and when they happen, then narrow them to what matters to you.
 
-**Status:** working front-end prototype. It shows 27 hand-compiled sample events, or live events from a Supabase database once `config.js` is filled in.
+**Live site:** https://www.techeventsapp.us
+
+**Status:** live. It reads approved events from a Supabase database and falls back to 27 built-in sample events if the database can't be reached.
 
 ## Features
 
@@ -39,7 +41,7 @@ The page loads globe.gl and fonts from CDNs, so it needs a network connection.
 
 ## Deploy on Vercel
 
-Import the repo in Vercel. Framework preset: **Other**. No build command and no output directory needed.
+Import the repo in Vercel. Framework preset: **Other**. No build command and no output directory needed. Every push to `main` redeploys. The site runs at https://www.techeventsapp.us.
 
 ## Backend (Supabase)
 
