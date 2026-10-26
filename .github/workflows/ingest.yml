@@ -1,0 +1,49 @@
+name: Ingest events
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays, 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only. Writes nothing to the database."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingest-events
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch confs.tech data (MIT licensed)
+        run: git clone --depth 1 https://github.com/tech-conferences/conference-data "$RUNNER_TEMP/confs"
+
+      - name: Restore geocoding cache
+        uses: actions/cache@v4
+        with:
+          path: ingest/geocache.json
+          key: geocache-${{ github.run_id }}
+          restore-keys: geocache-
+
+      - name: Ingest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          flags=""
+          if [ "$DRY_RUN" = "true" ]; then flags="--dry-run"; fi
+          node ingest/ingest.mjs --source-dir "$RUNNER_TEMP/confs/conferences" $flags

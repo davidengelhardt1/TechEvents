@@ -55,6 +55,31 @@ The page runs without a backend. To use a database:
 
 Access rules: anyone can read events with `status = 'approved'`. Signed-in users can insert events as `pending`. Approving or rejecting is done with the service role (dashboard or the future ingestion job).
 
+## Event ingestion
+
+A scheduled GitHub Action (`.github/workflows/ingest.yml`, Mondays 06:17 UTC, or run it by hand from the Actions tab) pulls upcoming conferences from the open [confs.tech conference data](https://github.com/tech-conferences/conference-data), geocodes the cities with OpenStreetMap Nominatim, skips anything already in the database (any status, so rejected events do not come back), and inserts the rest as **pending**. Nothing shows on the site until you approve it. Code is in `ingest/` and has no dependencies (Node 22).
+
+Setup, once: in the repo go to Settings, Secrets and variables, Actions, and add `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (the service role or secret key from Supabase, API settings). That key bypasses row-level security, so it lives only in GitHub secrets and never in `config.js`. Then run the workflow by hand with **dry run** on, read the summary, and run it again with dry run off.
+
+What it skips: online-only events, entries without a city, past events, bad dates or links, and events longer than 21 days. It never changes a row that already exists.
+
+Review the queue in the Supabase table editor, or in the SQL editor:
+
+```sql
+-- what is waiting
+select id, name, start_date, city, country, categories, metro
+from public.events where status = 'pending' order by start_date;
+
+-- approve everything you checked
+update public.events set status = 'approved' where status = 'pending' and source like 'confs.tech%';
+
+-- or approve / reject one
+update public.events set status = 'approved' where id = 'some-event-id';
+update public.events set status = 'rejected' where id = 'some-event-id';
+```
+
+Things to check while reviewing: the category guess (confs.tech "data" events are filed under machine learning, which is only a nearest fit), the `metro` grouping, and odd city names in the source data. Run the unit tests with `node --test ingest/test.mjs`.
+
 ## Data
 
 The built-in sample lives in the `RAW` array inside `index.html`:
@@ -74,7 +99,7 @@ Dates move. Confirm with the organizer before you book.
 1. ~~Supabase with PostGIS and row-level security~~ (schema and loader are in; project setup is a manual step above)
 2. Submit-an-event form and an approval queue
 3. Port to Next.js (App Router) with a server-rendered page per event
-4. Ingestion job that normalizes event pages into the schema with an LLM and writes them as `pending`
+4. ~~Ingestion job~~ (confs.tech feed is in; more sources and LLM clean-up can follow)
 5. Quality dashboard and an MCP server for querying events
 
 ## Credits
@@ -82,3 +107,5 @@ Dates move. Confirm with the organizer before you book.
 - [globe.gl](https://globe.gl) (MIT)
 - Country shapes from [Natural Earth](https://www.naturalearthdata.com/) via [world-atlas](https://github.com/topojson/world-atlas) (public domain / ISC)
 - Event data compiled from organizer sites and public listings
+- Automated listings from [tech-conferences/conference-data](https://github.com/tech-conferences/conference-data) (MIT), the data behind confs.tech
+- Geocoding by [OpenStreetMap Nominatim](https://nominatim.org/) (data © OpenStreetMap contributors, ODbL)
